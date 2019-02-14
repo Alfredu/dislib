@@ -1,4 +1,3 @@
-import sys
 from math import sqrt
 from time import time
 
@@ -41,13 +40,6 @@ class ALS(object):
             chunk_res = _update_chunk(subset, x, self._n_f, self._lambda)
             results.append(chunk_res)
 
-        # matrix = results[0]
-        # for i in range(1, len(results)):
-        #     self.merge(matrix, results[i])
-
-        # results = compss_wait_on(results)
-
-        # print(matrix.shape)
         return _merge(*results)
 
     def _has_converged(self, last_rmse, rmse, i):
@@ -79,9 +71,6 @@ class ALS(object):
 
         n_m = d_u.n_features
 
-        print("Movie chunks: %s" % len(d_m))
-        print("User chunks: %s" % len(d_u))
-
         if self._seed:
             np.random.seed(self._seed)
         u = None
@@ -103,8 +92,6 @@ class ALS(object):
             u = self._update(r=d_u, x=m)
             m = self._update(r=d_m, x=u)
 
-            print("Update %s: %s" % (i, time() - start))
-
             if test is not None:
                 x_idxs, y_idxs, recs = sparse.find(test)
                 indices = zip(x_idxs, y_idxs)
@@ -117,12 +104,13 @@ class ALS(object):
             else:
                 rmses = [_get_rmse(sb, u, m) for sb in d_u._subsets]
                 rmses = compss_wait_on(rmses)
-                print("RMSEs:\n%s" % list(rmses))
                 rmse = np.mean(rmses)
                 if self._verbose:
                     print("Train RMSE: %.3f  [%s]" % (
-                    rmse, abs(last_rmse - rmse)))
-            print("Iter %s: %s" % (i, time() - start))
+                        rmse, abs(last_rmse - rmse)))
+
+            if self._verbose:
+                print("Iter %s: %s" % (i, time() - start))
             i += 1
 
         self.u = compss_wait_on(u)
@@ -141,24 +129,13 @@ class ALS(object):
 
 @task(returns=np.array)
 def _merge(*chunks):
-    if shallow_tracing:
-        pro_f = sys.getprofile()
-        sys.setprofile(None)
-
     res = np.vstack(chunks)
-
-    if shallow_tracing:
-        sys.setprofile(pro_f)
 
     return res
 
 
 @task(returns=np.array)
 def _update_chunk(subset, x, n_f, lambda_):
-    if shallow_tracing:
-        pro_f = sys.getprofile()
-        sys.setprofile(None)
-
     r_chunk = subset.samples
     n = r_chunk.shape[0]
     y = np.zeros((n, n_f), dtype=np.float32)
@@ -173,30 +150,17 @@ def _update_chunk(subset, x, n_f, lambda_):
         a_i = x_xt + lambda_ * n_c[element] * np.eye(n_f)
         v_i = x[indices].T.dot(r_chunk[element, indices].toarray().T)
 
-        # for movielens and 200 factors times are:
-        # y[element] = inv(a_i).dot(v_i).reshape(-1) # 20s
-        # y[element] = np.linalg.solve(a_i, v_i).reshape(-1) # 13.87
-        y[element] = sparse.linalg.cg(a_i, v_i)[0].reshape(-1)  # 4.06
-
-    if shallow_tracing:
-        sys.setprofile(pro_f)
+        y[element] = sparse.linalg.cg(a_i, v_i)[0].reshape(-1)
 
     return y
 
 
 @task(returns=float)
 def _get_rmse(test, u, m):
-    if shallow_tracing:
-        pro_f = sys.getprofile()
-        sys.setprofile(None)
-
     x_idxs, y_idxs, recs = sparse.find(test.samples)
     indices = zip(x_idxs, y_idxs)
 
     preds = [u[x].dot(m[y].T) for x, y in indices]
     rmse = sqrt(mean_squared_error(recs, preds))
-
-    if shallow_tracing:
-        sys.setprofile(pro_f)
 
     return rmse

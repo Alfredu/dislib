@@ -1,4 +1,3 @@
-import sys
 from uuid import uuid4
 
 import numpy as np
@@ -124,7 +123,7 @@ class Dataset(object):
         new_elems = []
         for i in range(len(self)):
             new_elems.append(_subset_apply(self._subsets[i], f,
-                                             return_subset=return_dataset))
+                                           return_subset=return_dataset))
 
         if return_dataset:
             n_features = _subset_size(new_elems[0])
@@ -382,19 +381,12 @@ def _subset_size(subset):
 
 @task(returns=object)
 def _subset_apply(subset, f, return_subset=False):
-    if shallow_tracing:
-        pro_f = sys.getprofile()
-        sys.setprofile(None)
-
     samples = [f(row) for row in subset.samples]
     s = np.array(samples).reshape(len(samples), -1)
 
     print("Means:\n%s" % list(s))
     if return_subset:
         s = Subset(samples=s)
-
-    if shallow_tracing:
-        sys.setprofile(pro_f)
 
     return s
 
@@ -417,9 +409,7 @@ def _get_split_i(subset, i, n_subsets):
     Returns the columns corresponding to group i, if the subset is divided
     into n_subsets groups of columns.
     """
-    if shallow_tracing:
-        pro_f = sys.getprofile()
-        sys.setprofile(None)
+
     # number of elements per group
     stride = subset.samples.shape[1] // n_subsets
 
@@ -430,25 +420,18 @@ def _get_split_i(subset, i, n_subsets):
         end_idx = None
 
     samples_i = subset.samples[:, start_idx:end_idx]
-    if shallow_tracing:
-        sys.setprofile(pro_f)
 
     return samples_i
 
 
 @task(returns=1)
 def _merge_split_subsets(sparse, *split_subsets):
-    if shallow_tracing:
-        pro_f = sys.getprofile()
-        sys.setprofile(None)
     stack_f = sp.vstack if sparse else np.vstack
 
     # each sublist (sl) contains rows with a subset of columns. Each
     # sublist must be stacked vertical first. Then all sublists must be
     # stacked among themselves forming the final columns.
     col_samples = stack_f([stack_f(sl) for sl in split_subsets])
-    if shallow_tracing:
-        sys.setprofile(pro_f)
 
     # finally we transpose the columns.
     return Subset(samples=col_samples.transpose())

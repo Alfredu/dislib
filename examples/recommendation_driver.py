@@ -48,38 +48,6 @@ def load_movielens(data_path, file, delimiter=',', train_ratio=0.9,
     return dataset, test, valid
 
 
-def load_movielens_20m(data_path, file, delimiter=',', train_ratio=0.9,
-                       num_subsets=4):
-    print("Loading movielens debug dataset.")
-    cols = ['user_id', 'movie_id', 'rating', 'timestamp']
-
-    # 30 users, 100 movies
-    df = pd.read_csv(os.path.join(data_path, file),
-                     delimiter=delimiter,
-                     names=cols,
-                     usecols=cols[0:3],
-                     header=0).sample(frac=1, random_state=666)
-
-    # just in case there are movies/user without rating
-    n_m = max(df.movie_id.nunique(), max(df.movie_id) + 1)
-    n_u = max(df.user_id.nunique(), max(df.user_id) + 1)
-
-    idx = int(df.shape[0] * train_ratio)
-
-    train_df = df.iloc[:idx]
-    test_df = df.iloc[idx:]
-
-    train = csr_matrix(
-        (train_df.rating, (train_df.user_id, train_df.movie_id)),
-        shape=(n_u, n_m)).transpose().tocsr()
-    test = csr_matrix(
-        (test_df.rating, (test_df.user_id, test_df.movie_id)))
-
-    dataset = load_data(train, int(ceil(train.shape[0] / num_subsets)))
-
-    return dataset, test, None
-
-
 def load_movielens_train(data_path, file, num_subsets):
     print("Loading movielens debug dataset.")
     cols = ['user_id', 'movie_id', 'rating', 'timestamp']
@@ -147,18 +115,16 @@ def load_netflix_libsvm(num_subsets):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    # parser.add_argument("-d", "--debug", action="store_true", default=False)
     parser.add_argument("--num_subsets", type=int, default=48)
     parser.add_argument("--num_factors", type=int, default=100)
     parser.add_argument("--data_path", type=str, default='./data/')
-    parser.add_argument("--example", type=int, choices=range(0, 6), default=1,
+    parser.add_argument("--example", type=int, choices=range(0, 5), default=1,
                         help='Choose execution: 1->movielens for debug; '
                              '2->movielens ml-20, 3->movielesn ml-latest, 4->netflix for debug, 5->netflix full size.')
 
     args = parser.parse_args()
 
     num_subsets = args.num_subsets
-    # debug = args.debug
     data_path = args.data_path
     example = args.example
     n_f = args.num_factors
@@ -179,26 +145,17 @@ if __name__ == '__main__':
         file = 'ml-latest/ratings.csv'
         train_ds = load_movielens_train(data_path, file,
                                         num_subsets=num_subsets)
-    else:
+    elif example == 4:
         train_ds, test, valid = load_netflix_libsvm(num_subsets=num_subsets)
-        # train_ds, test, valid = load_netflix(num_subsets=num_subsets,
-        #                                      debug=example == 2,
-        #                                      data_path=data_path)
 
     exec_start = time()
     als = ALS(convergence_threshold=0.0001, max_iter=3, seed=666, n_f=n_f,
               verbose=True)
 
     als.fit(train_ds)
-    # als.fit(train_ds, test)
+
     exec_end = time()
 
     print("Prediction user 0:\n%s" % als.predict_user(0))
 
     print("Execution time: %.2f" % (exec_end - exec_start))
-    # cx = sparse.find(valid)
-    # preds = []
-    # for i, j, r in zip(cx[0], cx[1], cx[2]):
-    #     pred = als.predict_user(i)[j]
-    #     preds.append(pred)
-    #     print("Rating vs prediction: %.1f - %1.f" % (r, pred))
