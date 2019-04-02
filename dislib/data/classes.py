@@ -1,6 +1,7 @@
 import numpy as np
 import scipy.sparse as sp
 from pycompss.api.api import compss_wait_on
+from pycompss.api.parameter import INOUT, COLLECTION_IN
 from pycompss.api.task import task
 from scipy.sparse import issparse
 
@@ -95,10 +96,16 @@ class Dataset(object):
         if n_subsets is None:
             n_subsets = len(self._subsets)
 
+        # Get a matrix of chunks prior to re-merging them
+        subsets_total = []
+        for i in range(n_subsets):
+            subsets_i = [object() for _ in n_subsets]
+            subsets_total.append(_get_splits(subsets_i, self._subsets[i], n_subsets))
+
         subsets_t = []
         for i in range(n_subsets):
-            subsets_i = [_get_split_i(s, i, n_subsets) for s in self._subsets]
-            new_subset = _merge_split_subsets(self.sparse, *subsets_i)
+            subsets_i = [subsets_total[j][i] for j in range(len(subsets_total))]
+            new_subset = _merge_split_subsets(self.sparse, subsets_i)
             subsets_t.append(new_subset)
 
         n_rows = np.sum(self.subsets_sizes())
@@ -392,8 +399,8 @@ def _get_min_max(subset):
     return np.array([mn, mx])
 
 
-@task(returns=1)
-def _get_split_i(subset, i, n_subsets):
+@task(subset=COLLECTION_INOUT)
+def _get_splits(subsets, subset, n_subsets):
     """
     Returns the columns corresponding to group i, if the subset is divided
     into n_subsets groups of columns.
@@ -403,18 +410,17 @@ def _get_split_i(subset, i, n_subsets):
     stride = subset.samples.shape[1] // n_subsets
 
     # if it's the last group, just add all remaining element (end = None)
-    start_idx = i * stride
-    end_idx = (i + 1) * stride
-    if i == n_subsets - 1:
-        end_idx = None
+    for i in range(n_subsets):
 
-    samples_i = subset.samples[:, start_idx:end_idx]
+        start_idx = i * stride
+        end_idx = (i + 1) * stride
+        if i == n_subsets - 1:
+            end_idx = None
+        subsets[i] = subset.samples[:, start_idx:end_idx]
 
-    return samples_i
 
-
-@task(returns=1)
-def _merge_split_subsets(sparse, *split_subsets):
+@task(split_subsets=COLLECTION_IN, returns=1)
+def _merge_split_subsets(sparse, split_subsets):
     stack_f = sp.vstack if sparse else np.vstack
 
     # each sublist (sl) contains samples with a subset of columns. Each
